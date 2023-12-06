@@ -1,8 +1,6 @@
 #pragma once
-#include <cuda_bf16.h>
-#include <cuda_fp16.h>
+#include <cuda.h>
 #include <cuda_runtime.h>
-
 #include <cstdint>
 #include <vector>
 
@@ -60,7 +58,7 @@ inline T *alloc_from_buf(void **buf, int n) {
 
 template <typename DType>
 bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
-          int num_problems, int d_in, int d_out, int layer_idx) {
+          int num_problems, int d_in, int d_out, int layer_idx, CUstream_st* stream) {
   using cutlass_t = typename cutlass_dtype<DType>::type;
 
   auto ptr_Y = alloc_from_buf<cutlass_t *>(&tmp_d, num_problems);
@@ -72,7 +70,7 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
   auto all_problems =
       alloc_from_buf<cutlass::gemm::GemmCoord>(&tmp_d, num_problems);
 
-  precompute_sgmv_args<<<num_problems, 1>>>(
+  precompute_sgmv_args<<<num_problems, 1, 0, stream>>>(
       all_problems, ptr_Y, ptr_X, ptr_W, ld_Y, ld_X, ld_W, (cutlass_t *)y,
       (cutlass_t *)x, (cutlass_t **)w, s, d_in, d_out, layer_idx);
 
@@ -111,8 +109,8 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
                                          ptr_Y, ld_X, ld_W, ld_Y, ld_Y);
 
     GemmGrouped gemm;
-    if (gemm.initialize(args) != cutlass::Status::kSuccess) return false;
-    if (gemm.run() != cutlass::Status::kSuccess) return false;
+    if (gemm.initialize(args, nullptr, stream) != cutlass::Status::kSuccess) return false;
+    if (gemm.run(stream) != cutlass::Status::kSuccess) return false;
   } else {
     // Shrink
     using GemmKernel = typename cutlass::gemm::kernel::DefaultGemmGrouped<
@@ -146,8 +144,8 @@ bool sgmv(DType *y, DType *x, DType **w, int32_t *s, void *tmp_d,
                                          ptr_Y, ld_X, ld_W, ld_Y, ld_Y);
 
     GemmGrouped gemm;
-    if (gemm.initialize(args) != cutlass::Status::kSuccess) return false;
-    if (gemm.run() != cutlass::Status::kSuccess) return false;
+    if (gemm.initialize(args, nullptr, stream) != cutlass::Status::kSuccess) return false;
+    if (gemm.run(stream) != cutlass::Status::kSuccess) return false;
   }
   return true;
 }
