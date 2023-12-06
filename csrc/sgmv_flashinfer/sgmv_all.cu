@@ -3,22 +3,20 @@
 #include <cuda_runtime.h>
 
 #include <cstdint>
-
+#include <iostream>
 #include "sgmv_config.h"
 #include "sgmv_flashinfer.cuh"
 
 template <typename T, uint32_t d_out>
-bool sgmv_shrink(T* y, T* x, T** w, int32_t* s, void* tmp,
-                 uint32_t num_problems, uint32_t d_in, uint32_t layer_idx) {
+bool sgmv_shrink(T* y, const T* x, T** w, const int32_t* s, void* tmp,
+                 uint32_t num_problems, uint32_t d_in, uint32_t layer_idx, cudaStream_t stream) {
   static_assert(d_out % 16 == 0);
-
   constexpr uint32_t num_warps = 4;
   constexpr uint32_t num_stages = 2;
   constexpr uint32_t num_k_frags_per_stage = 8;
   constexpr uint32_t num_blocks_n = d_out / 16;
   uint32_t smem = num_stages * sizeof(T) * num_k_frags_per_stage * 16 * 16 *
                   (num_warps + num_blocks_n);
-  cudaStream_t stream = nullptr;
   auto cooperative_kernel =
       flashinfer::sgmv::sgmv_shrink<true, T, int, num_warps, d_out>;
   auto kernel = flashinfer::sgmv::sgmv_shrink<false, T, int, num_warps, d_out>;
@@ -65,9 +63,12 @@ bool sgmv_shrink(T* y, T* x, T** w, int32_t* s, void* tmp,
 }
 
 #define INST(T, d_out)                                                   \
-  template bool sgmv_shrink<T, d_out>(T * y, T * x, T * *w, int32_t * s, \
+  template bool sgmv_shrink<T, d_out>(T * y, const T * x, T * *w, const int32_t * s, \
                                       void* tmp, uint32_t num_problems,  \
-                                      uint32_t d_in, uint32_t layer_idx);
+                                      uint32_t d_in, uint32_t layer_idx, cudaStream_t stream);
 
-FOR_SGMV_NARROW(INST, nv_half);
+FOR_SGMV_NARROW(INST, half);
+FOR_SGMV_NARROW(INST, float);
+#ifdef ENABLE_BF16
 FOR_SGMV_NARROW(INST, nv_bfloat16);
+#endif
